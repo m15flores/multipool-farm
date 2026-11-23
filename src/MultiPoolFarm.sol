@@ -62,6 +62,9 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Thrown when the address is the zero address
     error ZeroAddress();
 
+    /// @dev Thrown when the ramount is not greater than zero
+    error AmountZero();
+
     /// @dev Thrown when the reward rate is not greater than zero
     error RewardRateZero();
 
@@ -124,7 +127,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     function stake(bytes32 poolId, uint256 amount) external nonReentrant {
         Pool storage pool = pools[poolId];
         if (!pool.isActive) revert PoolInactive();
-        if (amount == 0) revert RewardRateZero();
+        if (amount == 0) revert AmountZero();
 
         _updatePool(poolId);
 
