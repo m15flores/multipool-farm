@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @title MultiPoolFarm
  * @author Mario Flores
  * @notice Yield Farming contract demonstrating the use of abi.encodePacked
- *          to encode pool paramteres and calculate unique identifiers
+ *          to encode pool parameters and calculate unique identifiers
  */
 contract MultiPoolFarm is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
@@ -44,19 +44,45 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     // List of all active pools
     bytes32[] public activePools;
 
-    // Events
+    /// @dev Emitted when the owner creates a pool
     event PoolCreated(bytes32 indexed poolId, address indexed token, uint256 rewardRate);
+
+    /// @dev Emitted when a user stakes tokens in a pool
     event Staked(bytes32 indexed poolId, address indexed user, uint256 amount);
+
+    /// @dev Emitted when a user withdraws staked tokens from a pool
     event Withdrawn(bytes32 indexed poolId, address indexed user, uint256 amount);
+
+    /// @dev Emitted when pending rewards are paid to a user
     event RewardClaimed(bytes32 indexed poolId, address indexed user, uint256 amount);
+
+    /// @dev Emitted when the owner changes the reward rate of a pool
     event PoolUpdated(bytes32 indexed poolId, uint256 newRewardRate);
+
+    /// @dev Thrown when the address is the zero address
+    error ZeroAddress();
+
+    /// @dev Thrown when the reward rate is not greater than zero
+    error RewardRateZero();
+
+    /// @dev Thrown when a pool with the same identifier already exists
+    error PoolAlreadyExists();
+
+    /// @dev Thrown when using a pool that is not active
+    error PoolInactive();
+
+    /// @dev Thrown when the staked amount is lower than the requested amount
+    error InsufficientStake();
+
+    /// @dev Thrown when the user has no rewards to claim
+    error NoRewardsToClaim();
 
     /**
      * @dev The contract constructor
      * @param _rewardToken address of the reward token
      */
     constructor(address _rewardToken) Ownable(msg.sender) {
-        require(_rewardToken != address(0), "Invalid reward token.");
+        if (_rewardToken == address(0)) revert ZeroAddress();
         rewardToken = IERC20(_rewardToken);
     }
 
@@ -67,14 +93,14 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      * @return poolId the unique pool identifier
      */
     function createPool(address token, uint256 rewardRate) external onlyOwner returns (bytes32 poolId) {
-        require(token != address(0), "Invalid token address.");
-        require(rewardRate > 0, "Reward rate must be positive.");
+        if (token == address(0)) revert ZeroAddress();
+        if (rewardRate == 0) revert RewardRateZero();
 
         // The hash is an identifier, not a source of randomness
         // forge-lint: disable-next-line(weak-prng)
         poolId = keccak256(abi.encodePacked(token, rewardRate, block.timestamp, block.chainid));
 
-        require(pools[poolId].token == address(0), "Pool already exists.");
+        if (pools[poolId].token != address(0)) revert PoolAlreadyExists();
 
         pools[poolId] = Pool({
             token: token,
@@ -97,8 +123,8 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      */
     function stake(bytes32 poolId, uint256 amount) external nonReentrant {
         Pool storage pool = pools[poolId];
-        require(pool.isActive, "Pool is not active.");
-        require(amount > 0, "Amount must be positive");
+        if (!pool.isActive) revert PoolInactive();
+        if (amount == 0) revert RewardRateZero();
 
         _updatePool(poolId);
 
@@ -132,7 +158,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         Pool storage pool = pools[poolId];
         UserInfo storage user = userInfo[poolId][msg.sender];
 
-        require(user.amount >= amount, "Insufficient staked amount.");
+        if (user.amount < amount) revert InsufficientStake();
 
         _updatePool(poolId);
 
@@ -160,7 +186,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         _updatePool(poolId);
 
         uint256 pending = _calculatePendingRewards(poolId, msg.sender);
-        require(pending > 0, "No rewards to claim.");
+        if (pending == 0) revert NoRewardsToClaim();
 
         UserInfo storage user = userInfo[poolId][msg.sender];
         user.rewardDebt = user.amount * pools[poolId].rewardPerTokenStored / 1e18;
@@ -177,7 +203,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      */
     function updatePoolRewardRate(bytes32 poolId, uint256 newRewardRate) external onlyOwner {
         Pool storage pool = pools[poolId];
-        require(pool.isActive, "Pool is not active");
+        if (!pool.isActive) revert PoolInactive();
 
         _updatePool(poolId);
         pool.rewardRate = newRewardRate;

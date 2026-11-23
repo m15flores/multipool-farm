@@ -126,7 +126,7 @@ contract MultiPoolFarmTest is Test {
         vm.startPrank(user1);
         multiPoolFarm.stake(poolId1, stakeAmount);
 
-        vm.expectRevert("Insufficient staked amount.");
+        vm.expectRevert(MultiPoolFarm.InsufficientStake.selector);
         multiPoolFarm.withdraw(poolId1, stakeAmount + 1);
         vm.stopPrank();
     }
@@ -152,7 +152,7 @@ contract MultiPoolFarmTest is Test {
 
     function test_Claim_RevertWhen_NoRewards() public {
         vm.startPrank(user1);
-        vm.expectRevert("No rewards to claim.");
+        vm.expectRevert(MultiPoolFarm.NoRewardsToClaim.selector);
         multiPoolFarm.claim(poolId1);
         vm.stopPrank();
     }
