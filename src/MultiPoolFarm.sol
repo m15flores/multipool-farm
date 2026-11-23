@@ -59,6 +59,9 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Emitted when the owner changes the reward rate of a pool
     event PoolUpdated(bytes32 indexed poolId, uint256 newRewardRate);
 
+    /// @dev Emitted when the owner desactivates a pool
+    event PoolDeactivated(bytes32 indexed poolId);
+
     /// @dev Thrown when the address is the zero address
     error ZeroAddress();
 
@@ -280,6 +283,17 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      */
     function emergencyWithdraw(address token, uint256 amount) external onlyOwner {
         IERC20(token).safeTransfer(owner(), amount);
+    }
+
+    /**
+     * @dev Sets the pool inactive
+     * @param poolId Pool identifier
+     */
+    function setPoolInactive(bytes32 poolId) external onlyOwner {
+        Pool storage pool = pools[poolId];
+        pool.isActive = false;
+
+        emit PoolDeactivated(poolId);
     }
 
     /**
