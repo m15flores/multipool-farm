@@ -266,6 +266,50 @@ contract MultiPoolFarmTest is Test {
         assertGt(rewardToken.balanceOf(user1), 0);
     }
 
+    function test_Claim_TwoUsersClaimInSameBlockEachGetsShare() public {
+        uint256 stakeAmount1 = 1000 * 10 ** 18;
+        uint256 stakeAmount2 = 3 * stakeAmount1;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount1);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount2);
+
+        vm.warp(block.timestamp + 100);
+
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+
+        vm.prank(user2);
+        multiPoolFarm.claim(poolId1);
+
+        assertEq(rewardToken.balanceOf(user1), stakeAmount1 / 4);
+        assertEq(rewardToken.balanceOf(user2), 3 * stakeAmount2 / 4);
+    }
+
+    function test_Claim_LateStakerDoesNotReduceEarlierRewards() public {
+        uint256 stakeAmount1 = 1000 * 10 ** 18;
+        uint256 stakeAmount2 = 2 * stakeAmount1;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount1);
+
+        vm.warp(block.timestamp + 100);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount2);
+
+        vm.warp(block.timestamp + 100);
+
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+
+        uint256 expected = REWARD_RATE * 100 + REWARD_RATE * 100 * STAKE1 / (stakeAmount1 + stakeAmount2);
+
+        assertApproxEqAbs(rewardToken.balanceOf(user1), expected, stake1 / 1e18);
+    }
+
     function test_Claim_RevertWhen_NoRewards() public {
         vm.startPrank(user1);
         vm.expectRevert(MultiPoolFarm.NoRewardsToClaim.selector);
