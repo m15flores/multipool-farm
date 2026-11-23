@@ -91,6 +91,16 @@ contract MultiPoolFarmTest is Test {
         assertTrue(poolId1 != poolId3);
     }
 
+    function test_CreatePool_EmitsPoolCreated() public {
+        uint256 newRate = REWARD_RATE * 3;
+        bytes32 expectedId =
+            keccak256(abi.encodePacked(address(stakingToken1), newRate, block.timestamp, block.chainid));
+
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.PoolCreated(expectedId, address(stakingToken1), newRate);
+        multiPoolFarm.createPool(address(stakingToken1), newRate);
+    }
+
     function test_CreatePool_RevertWhen_TokenIsAddressZero() public {
         vm.expectRevert(MultiPoolFarm.ZeroAddress.selector);
         multiPoolFarm.createPool(address(0), REWARD_RATE);
@@ -125,6 +135,15 @@ contract MultiPoolFarmTest is Test {
 
         assertEq(amount, stakeAmount);
         assertEq(totalStaked, stakeAmount);
+    }
+
+    function test_Stake_EmitsStaked() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.Staked(poolId1, user1, stakeAmount);
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
     }
 
     function test_Stake_RevertWhen_PoolIsNotActive() public {
@@ -183,6 +202,18 @@ contract MultiPoolFarmTest is Test {
         assertEq(amount, stakeAmount - withdrawAmount);
         assertEq(totalStaked, stakeAmount - withdrawAmount);
         assertEq(stakingToken1.balanceOf(user1), 9000 * 10 ** 18 + withdrawAmount);
+    }
+
+    function test_Withdraw_EmitsWithdrawn() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.Withdrawn(poolId1, user1, stakeAmount);
+        vm.prank(user1);
+        multiPoolFarm.withdraw(poolId1, stakeAmount);
     }
 
     function test_Withdraw_RevertWhen_AmountExceedsStaked() public {
@@ -249,6 +280,14 @@ contract MultiPoolFarmTest is Test {
 
         (,, uint256 rewardRate,,,) = multiPoolFarm.pools(poolId1);
         assertEq(rewardRate, newRewardRate);
+    }
+
+    function test_UpdatePoolRewardRate_EmitsPoolUpdated() public {
+        uint256 newRewardRate = REWARD_RATE * 2;
+        vm.expectEmit(true, false, false, true);
+        emit MultiPoolFarm.PoolUpdated(poolId1, newRewardRate);
+
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
     }
 
     function test_UpdatePoolRewardRate_RevertWhen_PoolIsInactive() public {
@@ -346,7 +385,7 @@ contract MultiPoolFarmTest is Test {
     function test_SetPoolInactive_EmitsPoolDeactivated() public {
         vm.expectEmit(true, false, false, true);
         emit MultiPoolFarm.PoolDeactivated(poolId1);
-        
+
         multiPoolFarm.setPoolInactive(poolId1);
     }
 
