@@ -1,0 +1,227 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.34;
+
+import "forge-std/Test.sol";
+import "../src/MultiPoolFarm.sol";
+import "./mocks/MockToken.sol";
+
+contract MultiPoolFarmTest is Test {
+    MultiPoolFarm public multiPoolFarm;
+    MockToken public rewardToken;
+    MockToken public stakingToken1;
+    MockToken public stakingToken2;
+
+    address public owner;
+    address public user1;
+    address public user2;
+    address public user3;
+
+    bytes32 public poolId1;
+    bytes32 public poolId2;
+
+    uint256 public constant INITIAL_SUPPLY = 1000000 * 10 ** 18;
+    uint256 public constant REWARD_RATE = 1 * 10 ** 16; // 0.01 tokens per second
+
+    function setUp() public {
+        owner = address(this);
+        user1 = makeAddr("user1");
+        user2 = makeAddr("user2");
+        user3 = makeAddr("user3");
+
+        // Deploy tokens
+        rewardToken = new MockToken("Reward Token", "RWD", INITIAL_SUPPLY);
+        stakingToken1 = new MockToken("Staking Token 1", "STK1", INITIAL_SUPPLY);
+        stakingToken2 = new MockToken("Staking Token 2", "STK2", INITIAL_SUPPLY);
+
+        // Deploy contracts
+        multiPoolFarm = new MultiPoolFarm(address(rewardToken));
+
+        // Transfer tokens to users
+        stakingToken1.transfer(user1, 10000 * 10 ** 18);
+        stakingToken1.transfer(user2, 10000 * 10 ** 18);
+        stakingToken2.transfer(user1, 10000 * 10 ** 18);
+        stakingToken2.transfer(user3, 10000 * 10 ** 18);
+
+        // Transfer reward tokens to the farming pool
+        rewardToken.transfer(address(multiPoolFarm), 500000 * 10 ** 18);
+
+        // Create pools
+        poolId1 = multiPoolFarm.createPool(address(stakingToken1), REWARD_RATE);
+        poolId2 = multiPoolFarm.createPool(address(stakingToken2), REWARD_RATE * 2);
+
+        // Approve tokens
+        vm.startPrank(user1);
+        stakingToken1.approve(address(multiPoolFarm), type(uint256).max);
+        stakingToken2.approve(address(multiPoolFarm), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        stakingToken1.approve(address(multiPoolFarm), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(user3);
+        stakingToken2.approve(address(multiPoolFarm), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function test_CreatePool_StoresPoolData() public view {
+        (address token1,, uint256 rewardRate1,,, bool isActive1) = multiPoolFarm.pools(poolId1);
+        (address token2,, uint256 rewardRate2,,, bool isActive2) = multiPoolFarm.pools(poolId2);
+
+        assertTrue(isActive1);
+        assertTrue(isActive2);
+        assertEq(token1, address(stakingToken1));
+        assertEq(token2, address(stakingToken2));
+        assertEq(rewardRate1, REWARD_RATE);
+        assertEq(rewardRate2, REWARD_RATE * 2);
+    }
+
+    function test_CreatePool_PoolIdIsUnique() public {
+        assertTrue(poolId1 != poolId2);
+
+        vm.warp(block.timestamp + 1);
+        bytes32 poolId3 = multiPoolFarm.createPool(address(stakingToken1), REWARD_RATE);
+
+        assertTrue(poolId1 != poolId3);
+    }
+
+    function test_Stake_StoresUserAmountAndTotal() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.startPrank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        vm.stopPrank();
+
+        (uint256 amount,,) = multiPoolFarm.userInfo(poolId1, user1);
+        (, uint256 totalStaked,,,,) = multiPoolFarm.pools(poolId1);
+
+        assertEq(amount, stakeAmount);
+        assertEq(totalStaked, stakeAmount);
+    }
+
+    function test_Withdraw_ReturnsStakedTokens() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 withdrawAmount = 500 * 10 ** 18;
+
+        vm.startPrank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        vm.warp(block.timestamp + 100);
+
+        multiPoolFarm.withdraw(poolId1, withdrawAmount);
+        vm.stopPrank();
+
+        (uint256 amount,,) = multiPoolFarm.userInfo(poolId1, user1);
+        (, uint256 totalStaked,,,,) = multiPoolFarm.pools(poolId1);
+
+        assertEq(amount, stakeAmount - withdrawAmount);
+        assertEq(totalStaked, stakeAmount - withdrawAmount);
+        assertEq(stakingToken1.balanceOf(user1), 9000 * 10 ** 18 + withdrawAmount);
+    }
+
+    function test_Withdraw_RevertWhen_AmountExceedsStaked() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.startPrank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        vm.expectRevert("Insufficient staked amount.");
+        multiPoolFarm.withdraw(poolId1, stakeAmount + 1);
+        vm.stopPrank();
+    }
+
+    function test_Claim_TransferRewardsToUser() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.startPrank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 100);
+
+        uint256 pendingRewards = multiPoolFarm.pendingRewards(poolId1, user1);
+        assertGt(pendingRewards, 0);
+
+        vm.startPrank(user1);
+        multiPoolFarm.claim(poolId1);
+        vm.stopPrank();
+
+        assertGt(rewardToken.balanceOf(user1), 0);
+    }
+
+    function test_Claim_RevertWhen_NoRewards() public {
+        vm.startPrank(user1);
+        vm.expectRevert("No rewards to claim.");
+        multiPoolFarm.claim(poolId1);
+        vm.stopPrank();
+    }
+
+    function test_UpdatePoolRewardRate_StoresNewRate() public {
+        uint256 newRewardRate = REWARD_RATE * 2;
+
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+
+        (,, uint256 rewardRate,,,) = multiPoolFarm.pools(poolId1);
+        assertEq(rewardRate, newRewardRate);
+    }
+
+    function test_PendingRewards_ProportionalToStake() public {
+        uint256 stakeAmount1 = 1000 * 10 ** 18;
+        uint256 stakeAmount2 = 2000 * 10 ** 18;
+
+        vm.startPrank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount1);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        multiPoolFarm.stake(poolId1, stakeAmount2);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 100);
+
+        uint256 pending1 = multiPoolFarm.pendingRewards(poolId1, user1);
+        uint256 pending2 = multiPoolFarm.pendingRewards(poolId1, user2);
+
+        assertGt(pending1, 0);
+        assertGt(pending2, 0);
+
+        assertGt(pending2, pending1);
+    }
+
+    function test_GetPoolEncodedData_ReturnsNonEmptyData() public view {
+        bytes memory encodedData = multiPoolFarm.getPoolEncodedData(poolId1);
+
+        assertGt(encodedData.length, 0);
+    }
+
+    function test_GetUserHash_DiffersByUserAndPool() public view {
+        bytes32 userHash = multiPoolFarm.getUserHash(poolId1, user1);
+
+        bytes32 userHash2 = multiPoolFarm.getUserHash(poolId1, user2);
+        assertTrue(userHash != userHash2);
+
+        bytes32 userHashPool2 = multiPoolFarm.getUserHash(poolId2, user1);
+        assertTrue(userHash != userHashPool2);
+    }
+
+    function test_GetActivePools_ReturnsCreatedPools() public view {
+        bytes32[] memory activePools = multiPoolFarm.getActivePools();
+        assertEq(activePools.length, 2);
+        assertEq(activePools[0], poolId1);
+        assertEq(activePools[1], poolId2);
+
+        assertEq(multiPoolFarm.getActivePoolsCount(), 2);
+    }
+
+    function test_EmergencyWithdraw_SendsTokenToOwner() public {
+        stakingToken1.transfer(address(multiPoolFarm), 1000 * 10 ** 18);
+
+        uint256 balanceBefore = stakingToken1.balanceOf(owner);
+
+        multiPoolFarm.emergencyWithdraw(address(stakingToken1), 1000 * 10 ** 18);
+
+        uint256 balanceAfter = stakingToken1.balanceOf(owner);
+        assertEq(balanceAfter, balanceBefore + 1000 * 10 ** 18);
+    }
+}
