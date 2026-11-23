@@ -306,7 +306,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         if (pool.totalStaked > 0) {
             uint256 timeElapsed = block.timestamp - pool.lastUpdateTime;
             uint256 rewards = timeElapsed * pool.rewardRate;
-            pool.rewardPerTokenStored = rewards * 1e18 / pool.totalStaked;
+            pool.rewardPerTokenStored += rewards * 1e18 / pool.totalStaked;
         }
         pool.lastUpdateTime = block.timestamp;
     }
@@ -334,17 +334,11 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      * @param user User address
      * @return Amount of pending rewards
      */
-    function _calculatePendingRewards(bytes32 poolId, address user) internal returns (uint256) {
+    function _calculatePendingRewards(bytes32 poolId, address user) internal view returns (uint256) {
         Pool storage pool = pools[poolId];
         UserInfo storage userInfoData = userInfo[poolId][user];
 
         uint256 rewardPerTokenStored = pool.rewardPerTokenStored;
-
-        if (pool.totalStaked > 0) {
-            uint256 timeElapsed = block.timestamp - pool.lastUpdateTime;
-            uint256 rewards = timeElapsed * pool.rewardRate;
-            pool.rewardPerTokenStored = rewards * 1e18 / pool.totalStaked;
-        }
 
         return userInfoData.amount * rewardPerTokenStored / 1e18 - userInfoData.rewardDebt;
     }
