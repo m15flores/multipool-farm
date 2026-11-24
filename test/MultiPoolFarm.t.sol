@@ -534,6 +534,122 @@ contract MultiPoolFarmTest is Test {
         multiPoolFarm.rescueTokens(address(stakingToken1), 1000 * 10 ** 18);
     }
 
+    function test_EmergencyWithdraw_ReturnsFullStake() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+
+        (uint256 userAmount,,) = multiPoolFarm.userInfo(poolId1, user1);
+        (, uint256 poolTotalStaked,,,,) = multiPoolFarm.pools(poolId1);
+
+        assertEq(userAmount, 0);
+        assertEq(poolTotalStaked, 0);
+        assertEq(stakingToken1.balanceOf(user1), 10000 * 10 ** 18);
+    }
+
+    function test_EmergencyWithdraw_PaysNoRewards() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+
+        assertEq(rewardToken.balanceOf(user1), 0);
+    }
+
+    function test_EmergencyWithdraw_ClearsRewardDebt() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user2);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        skip(100);
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        skip(100);
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+
+        uint256 userPendingRewards = multiPoolFarm.pendingRewards(poolId1, user1);
+        assertEq(userPendingRewards, 0);
+    }
+
+    function test_EmergencyWithdraw_WorksWhenPoolIsInactive() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        multiPoolFarm.setPoolInactive(poolId1);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+
+        (uint256 userAmount,,) = multiPoolFarm.userInfo(poolId1, user1);
+        (, uint256 poolTotalStaked,,,,) = multiPoolFarm.pools(poolId1);
+
+        assertEq(userAmount, 0);
+        assertEq(poolTotalStaked, 0);
+        assertEq(stakingToken1.balanceOf(user1), 10000 * 10 ** 18);
+    }
+
+    function test_EmergencyWithdraw_WorksWhenRewardAccountingOverflows() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 newRewardRate = type(uint256).max / 1e18 + 1;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        // Absurd rate: rewards * 1e18 overflows inside _updatePool()
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+        skip(1);
+
+        vm.expectRevert(stdError.arithmeticError);
+        vm.prank(user1);
+        multiPoolFarm.withdraw(poolId1, stakeAmount);
+
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+
+        (uint256 userAmount,,) = multiPoolFarm.userInfo(poolId1, user1);
+        (, uint256 poolTotalStaked,,,,) = multiPoolFarm.pools(poolId1);
+
+        assertEq(userAmount, 0);
+        assertEq(poolTotalStaked, 0);
+        assertEq(stakingToken1.balanceOf(user1), 10000 * 10 ** 18);
+    }
+
+    function test_EmergencyWithdraw_EmitsEmergencyWithdrawn() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        skip(100);
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.EmergencyWithdrawn(poolId1, user1, stakeAmount);
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+    }
+
+    function test_EmergencyWithdraw_RevertWhen_NothingStaked() public {
+        vm.expectRevert(MultiPoolFarm.NothingStaked.selector);
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+    }
+
     function test_SetPoolInactive_DeactivatesThePool() public {
         (,,,,, bool poolIsActiveBefore) = multiPoolFarm.pools(poolId1);
         multiPoolFarm.setPoolInactive(poolId1);

@@ -59,6 +59,9 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Emitted when the owner changes the reward rate of a pool
     event PoolUpdated(bytes32 indexed poolId, uint256 newRewardRate);
 
+    /// @dev Emitted when a user exits a pool without rewards
+    event EmergencyWithdrawn(bytes32 indexed poolId, address indexed user, uint256 amount);
+
     /// @dev Emitted when the owner desactivates a pool
     event PoolDeactivated(bytes32 indexed poolId);
 
@@ -73,6 +76,9 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
 
     /// @dev Thrown when a pool with the same identifier already exists
     error PoolAlreadyExists();
+
+    /// @dev Thrown when the user has nothing staked in the pool
+    error NothingStaked();
 
     /// @dev Thrown when using a pool that is not active
     error PoolInactive();
@@ -285,8 +291,24 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         IERC20(token).safeTransfer(owner(), amount);
     }
 
-    function emergencyWithdraw(bytes32 poolId) external {
+    /**
+     * @dev Withdraws the whole stake and gives up pending rewards
+     * @param poolId Pool Identifier
+     */
+    function emergencyWithdraw(bytes32 poolId) external nonReentrant {
+        UserInfo storage user = userInfo[poolId][msg.sender];
+        if (user.amount == 0) revert NothingStaked();
 
+        // _updatePool is skipped on purpose: the exist must work even if reward accounting reverts
+        Pool storage pool = pools[poolId];
+        uint256 userAmount = user.amount;
+        user.amount = 0;
+        user.rewardDebt = 0;
+        pool.totalStaked -= userAmount;
+
+        IERC20(pool.token).safeTransfer(msg.sender, userAmount);
+
+        emit EmergencyWithdrawn(poolId, msg.sender, userAmount);
     }
 
     /**
