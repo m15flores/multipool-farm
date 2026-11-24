@@ -286,8 +286,8 @@ contract MultiPoolFarmTest is Test {
 
         uint256 totalRewards = REWARD_RATE * 100;
 
-    assertEq(rewardToken.balanceOf(user1), totalRewards * stakeAmount1 / (stakeAmount1 + stakeAmount2));
-    assertEq(rewardToken.balanceOf(user2), totalRewards * stakeAmount2 / (stakeAmount1 + stakeAmount2));
+        assertEq(rewardToken.balanceOf(user1), totalRewards * stakeAmount1 / (stakeAmount1 + stakeAmount2));
+        assertEq(rewardToken.balanceOf(user2), totalRewards * stakeAmount2 / (stakeAmount1 + stakeAmount2));
     }
 
     function test_Claim_LateStakerDoesNotReduceEarlierRewards() public {
@@ -297,12 +297,12 @@ contract MultiPoolFarmTest is Test {
         vm.prank(user1);
         multiPoolFarm.stake(poolId1, stakeAmount1);
 
-        vm.warp(block.timestamp + 100);
+        skip(100);
 
         vm.prank(user2);
         multiPoolFarm.stake(poolId1, stakeAmount2);
 
-        vm.warp(block.timestamp + 100);
+        skip(100);
 
         vm.prank(user1);
         multiPoolFarm.claim(poolId1);
@@ -326,6 +326,120 @@ contract MultiPoolFarmTest is Test {
 
         (,, uint256 rewardRate,,,) = multiPoolFarm.pools(poolId1);
         assertEq(rewardRate, newRewardRate);
+    }
+
+    function test_UpdatePoolRewardRate_PaysOldRateBeforeChange() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 newRewardRate = REWARD_RATE * 2;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        skip(100);
+
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+
+        uint256 expected = REWARD_RATE * 100 + newRewardRate * 100;
+
+        assertEq(rewardToken.balanceOf(user1), expected);
+    }
+
+    function test_UpdatePoolRewardRate_TwoUsersShareNewRateProportionally() public {
+        uint256 stakeAmount1 = 1000 * 10 ** 18;
+        uint256 stakeAmount2 = 3000 * 10 ** 18;
+        uint256 newRewardRate = REWARD_RATE * 2;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount1);
+        vm.prank(user2);
+        multiPoolFarm.stake(poolId1, stakeAmount2);
+
+        skip(100);
+
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+
+        vm.prank(user2);
+        multiPoolFarm.claim(poolId1);
+
+        uint256 totalRewards = REWARD_RATE * 100 + newRewardRate * 100;
+        uint256 expected1 = totalRewards * stakeAmount1 / (stakeAmount1 + stakeAmount2);
+        uint256 expected2 = totalRewards * stakeAmount2 / (stakeAmount1 + stakeAmount2);
+
+        assertEq(rewardToken.balanceOf(user1), expected1);
+        assertEq(rewardToken.balanceOf(user2), expected2);
+        assertEq(rewardToken.balanceOf(user1) * 3, rewardToken.balanceOf(user2));
+    }
+
+    function test_UpdatePoolRewardRate_ZeroRateStopsNewRewards() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 newRewardRate = 0;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        skip(100);
+
+        uint256 rewardBeforeZeroRate = multiPoolFarm.pendingRewards(poolId1, user1);
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+
+        skip(100);
+
+        uint256 rewardAfterZeroRate = multiPoolFarm.pendingRewards(poolId1, user1);
+
+        assertEq(rewardBeforeZeroRate, REWARD_RATE * 100);
+        assertEq(rewardBeforeZeroRate, rewardAfterZeroRate);
+    }
+
+    function test_UpdatePoolRewardRate_NoStakersThenStakeGetsNoRetroactiveRewards() public {
+        uint256 newRewardRate = REWARD_RATE * 2;
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        uint256 user1PendingRewardsFirst = multiPoolFarm.pendingRewards(poolId1, user1);
+        assertEq(user1PendingRewardsFirst, 0);
+
+        skip(100);
+        uint256 user1PendingRewardsSecond = multiPoolFarm.pendingRewards(poolId1, user1);
+        assertEq(user1PendingRewardsSecond, newRewardRate * 100);
+    }
+
+    function test_UpdatePoolRewardRate_DoesNotAffectOtherPools() public {
+        uint256 newRewardRate = REWARD_RATE * 2;
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        vm.prank(user3);
+        multiPoolFarm.stake(poolId2, stakeAmount);
+
+        skip(100);
+        multiPoolFarm.updatePoolRewardRate(poolId1, newRewardRate);
+        (,, uint256 rewardRatePool2Before,,,) = multiPoolFarm.pools(poolId2);
+        skip(100);
+        (,, uint256 rewardRatePool2After,,,) = multiPoolFarm.pools(poolId2);
+
+        uint256 expectedUser3 = REWARD_RATE * 2 * 200;
+        uint256 user3PendingRewards = multiPoolFarm.pendingRewards(poolId2, user3);
+        uint256 expectedUser1 = REWARD_RATE * 100 + newRewardRate * 100;
+        uint256 user1PendingRewards = multiPoolFarm.pendingRewards(poolId1, user1);
+
+        assertEq(user3PendingRewards, expectedUser3);
+        assertEq(user1PendingRewards, expectedUser1);
+        assertEq(rewardRatePool2Before, rewardRatePool2After);
     }
 
     function test_UpdatePoolRewardRate_EmitsPoolUpdated() public {
