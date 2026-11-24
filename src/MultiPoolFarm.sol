@@ -41,6 +41,9 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     // Mapping of user information by pool and address
     mapping(bytes32 => mapping(address => UserInfo)) public userInfo;
 
+    // Mapping of total staked by the address of the token
+    mapping(address => uint256) public totalStakedByToken;
+
     // List of all active pools
     bytes32[] public activePools;
 
@@ -62,13 +65,16 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Emitted when a user exits a pool without rewards
     event EmergencyWithdrawn(bytes32 indexed poolId, address indexed user, uint256 amount);
 
-    /// @dev Emitted when the owner desactivates a pool
+    /// @dev Emitted when the owner deactivates a pool
     event PoolDeactivated(bytes32 indexed poolId);
+
+    /// @dev Emitted when the owner rescues tokens that were not owed to stakers
+    event TokensRescued(address indexed token, uint256 amount);
 
     /// @dev Thrown when the address is the zero address
     error ZeroAddress();
 
-    /// @dev Thrown when the ramount is not greater than zero
+    /// @dev Thrown when the amount is zero
     error AmountZero();
 
     /// @dev Thrown when the reward rate is not greater than zero
@@ -89,6 +95,15 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Thrown when the user has no rewards to claim
     error NoRewardsToClaim();
 
+    /// @dev Thrown when the staking token of a pool is the reward token
+    error StakeTokenIsRewardToken();
+
+    /// @dev Thrown when the owner tries to rescue the reward token
+    error RewardTokenNotRescuable();
+
+    /// @dev Thrown when the rescued amount exceeds the tokens not owed to stakers
+    error RescueExceedsSurplus();
+
     /**
      * @dev The contract constructor
      * @param _rewardToken address of the reward token
@@ -106,6 +121,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      */
     function createPool(address token, uint256 rewardRate) external onlyOwner returns (bytes32 poolId) {
         if (token == address(0)) revert ZeroAddress();
+        if (token == address(rewardToken)) revert StakeTokenIsRewardToken();
         if (rewardRate == 0) revert RewardRateZero();
 
         // The hash is an identifier, not a source of randomness
@@ -157,6 +173,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         user.lastClaimTime = block.timestamp;
 
         pool.totalStaked += amount;
+        totalStakedByToken[pool.token] += amount;
 
         emit Staked(poolId, msg.sender, amount);
     }
@@ -184,6 +201,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         user.rewardDebt = user.amount * pool.rewardPerTokenStored / 1e18;
 
         pool.totalStaked -= amount;
+        totalStakedByToken[pool.token] -= amount;
 
         IERC20(pool.token).safeTransfer(msg.sender, amount);
 
@@ -210,7 +228,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
 
     /**
      * @dev Update the reward rate of a pool
-     * @param poolId Pool Identifier
+     * @param poolId Pool identifier
      * @param newRewardRate New reward rate
      */
     function updatePoolRewardRate(bytes32 poolId, uint256 newRewardRate) external onlyOwner {
@@ -283,28 +301,38 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Emergency function for the owner
+     * @dev Sends the owner the tokens that are not owed by the stakers
      * @param token Address of the token to rescue
      * @param amount Amount to rescue
      */
     function rescueTokens(address token, uint256 amount) external onlyOwner {
+        if (token == address(rewardToken)) revert RewardTokenNotRescuable();
+
+        uint256 tokenBalance = IERC20(token).balanceOf(address(this));
+        uint256 surplus = tokenBalance - totalStakedByToken[token];
+
+        if (amount > surplus) revert RescueExceedsSurplus();
+
         IERC20(token).safeTransfer(owner(), amount);
+
+        emit TokensRescued(token, amount);
     }
 
     /**
      * @dev Withdraws the whole stake and gives up pending rewards
-     * @param poolId Pool Identifier
+     * @param poolId Pool identifier
      */
     function emergencyWithdraw(bytes32 poolId) external nonReentrant {
         UserInfo storage user = userInfo[poolId][msg.sender];
         if (user.amount == 0) revert NothingStaked();
 
-        // _updatePool is skipped on purpose: the exist must work even if reward accounting reverts
+        // _updatePool is skipped on purpose: the exit must work even if reward accounting reverts
         Pool storage pool = pools[poolId];
         uint256 userAmount = user.amount;
         user.amount = 0;
         user.rewardDebt = 0;
         pool.totalStaked -= userAmount;
+        totalStakedByToken[pool.token] -= userAmount;
 
         IERC20(pool.token).safeTransfer(msg.sender, userAmount);
 

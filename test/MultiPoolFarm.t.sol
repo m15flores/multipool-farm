@@ -123,6 +123,11 @@ contract MultiPoolFarmTest is Test {
         multiPoolFarm.createPool(address(stakingToken1), REWARD_RATE);
     }
 
+    function test_CreatePool_RevertWhen_TokenIsRewardToken() public {
+        vm.expectRevert(MultiPoolFarm.StakeTokenIsRewardToken.selector);
+        multiPoolFarm.createPool(address(rewardToken), REWARD_RATE);
+    }
+
     function test_Stake_StoresUserAmountAndTotal() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -135,6 +140,18 @@ contract MultiPoolFarmTest is Test {
 
         assertEq(amount, stakeAmount);
         assertEq(totalStaked, stakeAmount);
+    }
+
+    function test_Stake_IncreasesTotalStakedByToken() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        uint256 totalStakedByTokenBefore = multiPoolFarm.totalStakedByToken(address(stakingToken1));
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        uint256 totalStakedByTokenAfter = multiPoolFarm.totalStakedByToken(address(stakingToken1));
+
+        assertEq(totalStakedByTokenAfter, totalStakedByTokenBefore + stakeAmount);
     }
 
     function test_Stake_EmitsStaked() public {
@@ -181,6 +198,20 @@ contract MultiPoolFarmTest is Test {
         assertEq(amount, stakeAmount - withdrawAmount);
         assertEq(totalStaked, stakeAmount - withdrawAmount);
         assertEq(stakingToken1.balanceOf(user1), 9000 * 10 ** 18 + withdrawAmount);
+    }
+
+    function test_Withdraw_DecreasesTotalStakedByToken() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        uint256 totalStakedByTokenBefore = multiPoolFarm.totalStakedByToken(address(stakingToken1));
+        vm.prank(user1);
+        multiPoolFarm.withdraw(poolId1, stakeAmount);
+        uint256 totalStakedByTokenAfter = multiPoolFarm.totalStakedByToken(address(stakingToken1));
+
+        assertEq(totalStakedByTokenAfter, totalStakedByTokenBefore - stakeAmount);
     }
 
     function test_Withdraw_ReturnsStakedTokensWhenPoolDeactivated() public {
@@ -264,7 +295,7 @@ contract MultiPoolFarmTest is Test {
         multiPoolFarm.claim(poolId1);
         vm.stopPrank();
 
-        assertGt(rewardToken.balanceOf(user1), 0);
+        assertEq(rewardToken.balanceOf(user1), REWARD_RATE * 100);
     }
 
     function test_Claim_TwoUsersClaimInSameBlockEachGetsShare() public {
@@ -515,23 +546,66 @@ contract MultiPoolFarmTest is Test {
         assertEq(multiPoolFarm.getActivePoolsCount(), 2);
     }
 
-    function test_RescueTokens_SendsTokenToOwner() public {
-        stakingToken1.transfer(address(multiPoolFarm), 1000 * 10 ** 18);
+    function test_RescueTokens_SendsSurplusTokenToOwner() public {
+        uint256 amount = 1000 * 10 ** 18;
+        stakingToken1.transfer(address(multiPoolFarm), amount);
 
         uint256 balanceBefore = stakingToken1.balanceOf(owner);
 
-        multiPoolFarm.rescueTokens(address(stakingToken1), 1000 * 10 ** 18);
+        multiPoolFarm.rescueTokens(address(stakingToken1), amount);
 
         uint256 balanceAfter = stakingToken1.balanceOf(owner);
-        assertEq(balanceAfter, balanceBefore + 1000 * 10 ** 18);
+        assertEq(balanceAfter, balanceBefore + amount);
+    }
+
+    function test_RescueTokens_EmitsTokensRescued() public {
+        uint256 amount = 1000 * 10 ** 18;
+        stakingToken1.transfer(address(multiPoolFarm), amount);
+
+        vm.expectEmit(true, false, false, true);
+        emit MultiPoolFarm.TokensRescued(address(stakingToken1), amount);
+
+        multiPoolFarm.rescueTokens(address(stakingToken1), amount);
     }
 
     function test_RescueTokens_RevertWhen_CallerIsNotOwner() public {
-        stakingToken1.transfer(address(multiPoolFarm), 1000 * 10 ** 18);
+        uint256 amount = 1000 * 10 ** 18;
+        stakingToken1.transfer(address(multiPoolFarm), amount);
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         vm.prank(user1);
-        multiPoolFarm.rescueTokens(address(stakingToken1), 1000 * 10 ** 18);
+        multiPoolFarm.rescueTokens(address(stakingToken1), amount);
+    }
+
+    function test_RescueTokens_RevertWhen_TokenIsRewardToken() public {
+        uint256 amount = 1000 * 10 ** 18;
+
+        vm.expectRevert(MultiPoolFarm.RewardTokenNotRescuable.selector);
+        multiPoolFarm.rescueTokens(address(rewardToken), amount);
+    }
+
+    function test_RescueTokens_RevertWhen_AmountExceedsSurplus() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        stakingToken1.transfer(address(multiPoolFarm), stakeAmount / 2);
+
+        vm.expectRevert(MultiPoolFarm.RescueExceedsSurplus.selector);
+        multiPoolFarm.rescueTokens(address(stakingToken1), stakeAmount / 2 + 1);
+    }
+
+    function test_RescueTokens_RevertWhen_NoSurplusAndPoolsShareToken() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        bytes32 poolId3 = multiPoolFarm.createPool(address(stakingToken1), REWARD_RATE * 3);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        vm.prank(user2);
+        multiPoolFarm.stake(poolId3, stakeAmount);
+
+        vm.expectRevert(MultiPoolFarm.RescueExceedsSurplus.selector);
+        multiPoolFarm.rescueTokens(address(stakingToken1), 1);
     }
 
     function test_EmergencyWithdraw_ReturnsFullStake() public {
@@ -631,6 +705,20 @@ contract MultiPoolFarmTest is Test {
         assertEq(stakingToken1.balanceOf(user1), 10000 * 10 ** 18);
     }
 
+    function test_EmergencyWithdraw_DecreasesTotalStakedByToken() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        uint256 totalStakedByTokenBefore = multiPoolFarm.totalStakedByToken(address(stakingToken1));
+        vm.prank(user1);
+        multiPoolFarm.emergencyWithdraw(poolId1);
+        uint256 totalStakedByTokenAfter = multiPoolFarm.totalStakedByToken(address(stakingToken1));
+
+        assertEq(totalStakedByTokenAfter, totalStakedByTokenBefore - stakeAmount);
+    }
+
     function test_EmergencyWithdraw_EmitsEmergencyWithdrawn() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -659,7 +747,7 @@ contract MultiPoolFarmTest is Test {
         assertFalse(poolIsActiveAfter);
     }
 
-    function test_SetPoolInactive_StopNewRewards() public {
+    function test_SetPoolInactive_StopsNewRewards() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
         vm.prank(user1);
@@ -671,7 +759,7 @@ contract MultiPoolFarmTest is Test {
         skip(100);
 
         uint256 user1PendingRewardsAfter = multiPoolFarm.pendingRewards(poolId1, user1);
-        (,, uint256 rewardRateAfter,,, bool poolIsActiveAfter) = multiPoolFarm.pools(poolId1);
+        (,, uint256 rewardRateAfter,,,) = multiPoolFarm.pools(poolId1);
 
         assertEq(rewardRateAfter, 0);
         assertEq(user1PendingRewardsBefore, user1PendingRewardsAfter);
