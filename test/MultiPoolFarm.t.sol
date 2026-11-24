@@ -22,6 +22,7 @@ contract MultiPoolFarmTest is Test {
 
     uint256 public constant INITIAL_SUPPLY = 1000000 * 10 ** 18;
     uint256 public constant REWARD_RATE = 1 * 10 ** 16; // 0.01 tokens per second
+    uint256 public constant INITIAL_FUNDING = 500000 * 10 ** 18;
 
     function setUp() public {
         owner = address(this);
@@ -43,8 +44,9 @@ contract MultiPoolFarmTest is Test {
         stakingToken2.transfer(user1, 10000 * 10 ** 18);
         stakingToken2.transfer(user3, 10000 * 10 ** 18);
 
-        // Transfer reward tokens to the farming pool
-        rewardToken.transfer(address(multiPoolFarm), 500000 * 10 ** 18);
+        // Fund the farm with reward tokens
+        rewardToken.approve(address(multiPoolFarm), INITIAL_FUNDING);
+        multiPoolFarm.fundRewards(INITIAL_FUNDING);
 
         // Create pools
         poolId1 = multiPoolFarm.createPool(address(stakingToken1), REWARD_RATE);
@@ -168,6 +170,29 @@ contract MultiPoolFarmTest is Test {
         assertEq(userRewardTokenBalance, REWARD_RATE * 100);
     }
 
+    function test_Stake_SecondStakeIncreasesTotalDistributed() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 totalDistributedBefore = multiPoolFarm.totalDistributed();
+        uint256 userRewardTokenBalanceBefore = rewardToken.balanceOf(user1);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        uint256 totalDistributedDuring = multiPoolFarm.totalDistributed();
+        assertEq(totalDistributedDuring, totalDistributedBefore);
+
+        skip(100);
+        uint256 expected = multiPoolFarm.pendingRewards(poolId1, user1);
+        assertGt(expected, 0);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        uint256 totalDistributedAfter = multiPoolFarm.totalDistributed();
+        uint256 userRewardTokenBalanceAfter = rewardToken.balanceOf(user1);
+
+        assertEq(totalDistributedAfter - totalDistributedBefore, expected);
+        assertEq(userRewardTokenBalanceAfter - userRewardTokenBalanceBefore, expected);
+    }
+
     function test_Stake_EmitsStaked() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -276,6 +301,25 @@ contract MultiPoolFarmTest is Test {
         assertEq(userRewardTokenBalance, REWARD_RATE * 100);
     }
 
+    function test_Withdraw_IncreasesTotalDistributed() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 totalDistributedBefore = multiPoolFarm.totalDistributed();
+        uint256 userRewardTokenBalanceBefore = rewardToken.balanceOf(user1);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+        uint256 expected = multiPoolFarm.pendingRewards(poolId1, user1);
+
+        vm.prank(user1);
+        multiPoolFarm.withdraw(poolId1, stakeAmount);
+        uint256 totalDistributedAfter = multiPoolFarm.totalDistributed();
+        uint256 userRewardTokenBalanceAfter = rewardToken.balanceOf(user1);
+
+        assertEq(totalDistributedAfter - totalDistributedBefore, expected);
+        assertEq(userRewardTokenBalanceAfter - userRewardTokenBalanceBefore, expected);
+    }
+
     function test_Withdraw_EmitsWithdrawn() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -310,6 +354,15 @@ contract MultiPoolFarmTest is Test {
         vm.expectRevert(MultiPoolFarm.InsufficientStake.selector);
         multiPoolFarm.withdraw(poolId1, stakeAmount + 1);
         vm.stopPrank();
+    }
+
+    function test_Withdraw_RevertWhen_RewardsExceedFunded() public {
+        (MultiPoolFarm farm, bytes32 poolId) = _deployUnderfundedFarm();
+        assertGt(farm.pendingRewards(poolId, user1), farm.totalFunded());
+
+        vm.expectRevert(MultiPoolFarm.InsufficientRewardBalance.selector);
+        vm.prank(user1);
+        farm.withdraw(poolId, 100 * 10 ** 18);
     }
 
     function test_Claim_TransferRewardsToUser() public {
@@ -422,6 +475,25 @@ contract MultiPoolFarmTest is Test {
         assertEq(userRewardTokenBalance, REWARD_RATE * 200);
     }
 
+    function test_Claim_IncreasesTotalDistributed() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+        uint256 totalDistributedBefore = multiPoolFarm.totalDistributed();
+        uint256 userRewardTokenBalanceBefore = rewardToken.balanceOf(user1);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+        uint256 expected = multiPoolFarm.pendingRewards(poolId1, user1);
+
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+        uint256 totalDistributedAfter = multiPoolFarm.totalDistributed();
+        uint256 userRewardTokenBalanceAfter = rewardToken.balanceOf(user1);
+
+        assertEq(totalDistributedAfter - totalDistributedBefore, expected);
+        assertEq(userRewardTokenBalanceAfter - userRewardTokenBalanceBefore, expected);
+    }
+
     function test_Claim_EmitsRewardClaimed() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -440,6 +512,15 @@ contract MultiPoolFarmTest is Test {
         vm.expectRevert(MultiPoolFarm.NoRewardsToClaim.selector);
         multiPoolFarm.claim(poolId1);
         vm.stopPrank();
+    }
+
+    function test_Claim_RevertWhen_RewardsExceedFunded() public {
+        (MultiPoolFarm farm, bytes32 poolId) = _deployUnderfundedFarm();
+        assertGt(farm.pendingRewards(poolId, user1), farm.totalFunded());
+
+        vm.expectRevert(MultiPoolFarm.InsufficientRewardBalance.selector);
+        vm.prank(user1);
+        farm.claim(poolId);
     }
 
     function test_UpdatePoolRewardRate_StoresNewRate() public {
@@ -684,13 +765,6 @@ contract MultiPoolFarmTest is Test {
         multiPoolFarm.rescueTokens(address(stakingToken1), amount);
     }
 
-    function test_RescueTokens_RevertWhen_TokenIsRewardToken() public {
-        uint256 amount = 1000 * 10 ** 18;
-
-        vm.expectRevert(MultiPoolFarm.RewardTokenNotRescuable.selector);
-        multiPoolFarm.rescueTokens(address(rewardToken), amount);
-    }
-
     function test_RescueTokens_RevertWhen_AmountExceedsSurplus() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
         vm.prank(user1);
@@ -826,6 +900,26 @@ contract MultiPoolFarmTest is Test {
         assertEq(totalStakedByTokenAfter, totalStakedByTokenBefore - stakeAmount);
     }
 
+    function test_EmergencyWithdraw_ReturnsStakeWhenRewardsUnderfunded() public {
+        (MultiPoolFarm farm, bytes32 poolId) = _deployUnderfundedFarm();
+        assertGt(farm.pendingRewards(poolId, user1), farm.totalFunded());
+
+        uint256 stakingTokenBalanceBefore = stakingToken1.balanceOf(user1);
+        uint256 rewardTokenBalanceBefore = rewardToken.balanceOf(user1);
+        uint256 totalDistributedBefore = farm.totalDistributed();
+
+        vm.prank(user1);
+        farm.emergencyWithdraw(poolId);
+
+        uint256 stakingTokenBalanceAfter = stakingToken1.balanceOf(user1);
+        uint256 rewardTokenBalanceAfter = rewardToken.balanceOf(user1);
+        uint256 totalDistributedAfter = farm.totalDistributed();
+
+        assertEq(stakingTokenBalanceAfter, stakingTokenBalanceBefore + 1_000 * 10 ** 18);
+        assertEq(rewardTokenBalanceAfter, rewardTokenBalanceBefore);
+        assertEq(totalDistributedAfter, totalDistributedBefore);
+    }
+
     function test_EmergencyWithdraw_EmitsEmergencyWithdrawn() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -891,5 +985,62 @@ contract MultiPoolFarmTest is Test {
 
         vm.expectRevert(MultiPoolFarm.PoolInactive.selector);
         multiPoolFarm.setPoolInactive(poolId1);
+    }
+
+    function test_FundRewards_IncreasesTotalFundedAndBalance() public {
+        uint256 amount = 10_000 * 10 ** 18;
+        uint256 totalFundedBefore = multiPoolFarm.totalFunded();
+        uint256 totalBalanceBefore = rewardToken.balanceOf(address(multiPoolFarm));
+
+        rewardToken.approve(address(multiPoolFarm), amount);
+
+        multiPoolFarm.fundRewards(amount);
+
+        uint256 totalFundedAfter = multiPoolFarm.totalFunded();
+        uint256 totalBalanceAfter = rewardToken.balanceOf(address(multiPoolFarm));
+        assertEq(totalBalanceAfter, totalBalanceBefore + amount);
+        assertEq(totalFundedAfter, totalFundedBefore + amount);
+    }
+
+    function test_FundRewards_EmitsRewardsFunded() public {
+        uint256 amount = 10_000 * 10 ** 18;
+        rewardToken.approve(address(multiPoolFarm), amount);
+
+        vm.expectEmit(true, false, false, true);
+        emit MultiPoolFarm.RewardsFunded(owner, amount);
+        multiPoolFarm.fundRewards(amount);
+    }
+
+    function test_FundRewards_RevertWhen_AmountIsZero() public {
+        vm.expectRevert(MultiPoolFarm.AmountZero.selector);
+        multiPoolFarm.fundRewards(0);
+    }
+
+    function test_FundRewards_RevertWhen_CallerIsNotOwner() public {
+        uint256 amount = 10_000 * 10 ** 18;
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        vm.prank(user1);
+        multiPoolFarm.fundRewards(amount);
+    }
+
+    function _deployUnderfundedFarm() internal returns (MultiPoolFarm farm, bytes32 poolId) {
+        uint256 funding = 100 * 10 ** 18;
+        uint256 stakeAmount = 1_000 * 10 ** 18;
+        uint256 rate = REWARD_RATE;
+
+        farm = new MultiPoolFarm(address(rewardToken));
+
+        rewardToken.approve(address(farm), funding);
+        farm.fundRewards(funding);
+
+        poolId = farm.createPool(address(stakingToken1), rate);
+
+        vm.startPrank(user1);
+        stakingToken1.approve(address(farm), stakeAmount);
+        farm.stake(poolId, stakeAmount);
+        vm.stopPrank();
+
+        // Wait until the rewards earned (rate * time) exceed 'funding'
+        skip(funding / rate + 1);
     }
 }

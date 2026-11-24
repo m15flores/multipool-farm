@@ -47,6 +47,12 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     // List of all active pools
     bytes32[] public activePools;
 
+    // Total reward token funded by the owner
+    uint256 public totalFunded;
+
+    // Total reward token paid to users
+    uint256 public totalDistributed;
+
     /// @dev Emitted when the owner creates a pool
     event PoolCreated(bytes32 indexed poolId, address indexed token, uint256 rewardRate);
 
@@ -68,8 +74,11 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Emitted when the owner deactivates a pool
     event PoolDeactivated(bytes32 indexed poolId);
 
-    /// @dev Emitted when the owner rescues tokens that were not owed to stakers
+    /// @dev Emitted when the owner rescues tokens that were not owed to stakers nor commited as rewards
     event TokensRescued(address indexed token, uint256 amount);
+
+    /// @dev Emited when the owner funds the farm with the reward token
+    event RewardsFunded(address indexed funder, uint256 amount);
 
     /// @dev Thrown when the address is the zero address
     error ZeroAddress();
@@ -98,11 +107,11 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Thrown when the staking token of a pool is the reward token
     error StakeTokenIsRewardToken();
 
-    /// @dev Thrown when the owner tries to rescue the reward token
-    error RewardTokenNotRescuable();
-
     /// @dev Thrown when the rescued amount exceeds the tokens not owed to stakers
     error RescueExceedsSurplus();
+
+    /// @dev Thrown when a payout exceeds the rewards funded and not yet distributed
+    error InsufficientRewardBalance();
 
     /**
      * @dev The contract constructor
@@ -161,7 +170,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         if (user.amount > 0) {
             uint256 pending = _calculatePendingRewards(poolId, msg.sender);
             if (pending > 0) {
-                _safeRewardTransfer(msg.sender, pending);
+                _payReward(msg.sender, pending);
                 emit RewardClaimed(poolId, msg.sender, pending);
             }
         }
@@ -193,7 +202,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
 
         uint256 pending = _calculatePendingRewards(poolId, msg.sender);
         if (pending > 0) {
-            _safeRewardTransfer(msg.sender, pending);
+            _payReward(msg.sender, pending);
             emit RewardClaimed(poolId, msg.sender, pending);
         }
 
@@ -222,7 +231,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         user.rewardDebt = user.amount * pools[poolId].rewardPerTokenStored / 1e18;
         user.lastClaimTime = block.timestamp;
 
-        _safeRewardTransfer(msg.sender, pending);
+        _payReward(msg.sender, pending);
         emit RewardClaimed(poolId, msg.sender, pending);
     }
 
@@ -301,15 +310,14 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Sends the owner the tokens that are not owed by the stakers
+     * @dev Sends the owner the tokens that are not owed by the stakers nor commited as rewards
      * @param token Address of the token to rescue
      * @param amount Amount to rescue
      */
     function rescueTokens(address token, uint256 amount) external onlyOwner {
-        if (token == address(rewardToken)) revert RewardTokenNotRescuable();
-
+        uint256 committed = token == address(rewardToken) ? totalFunded - totalDistributed : totalStakedByToken[token];
         uint256 tokenBalance = IERC20(token).balanceOf(address(this));
-        uint256 surplus = tokenBalance - totalStakedByToken[token];
+        uint256 surplus = tokenBalance - committed;
 
         if (amount > surplus) revert RescueExceedsSurplus();
 
@@ -355,6 +363,19 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
+     * @dev Funds the farm with reward token
+     * @param amount Amount of reward token to fund
+     */
+    function fundRewards(uint256 amount) external onlyOwner {
+        if (amount == 0) revert AmountZero();
+
+        rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+        totalFunded += amount;
+
+        emit RewardsFunded(msg.sender, amount);
+    }
+
+    /**
      * @dev Update the pool state
      * @param poolId Pool identifier
      */
@@ -370,20 +391,15 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Safely transfer rewards
+     * @dev Pays rewards to a user, only from funded rewards
      * @param to Recipient address
-     * @param amount Amount to transfer
+     * @param amount Amount to pay
      */
-    function _safeRewardTransfer(address to, uint256 amount) internal {
-        uint256 rewardBalance = rewardToken.balanceOf(address(this));
+    function _payReward(address to, uint256 amount) internal {
+        if (totalDistributed + amount > totalFunded) revert InsufficientRewardBalance();
 
-        if (amount > rewardBalance) {
-            amount = rewardBalance;
-        }
-
-        if (amount > 0) {
-            rewardToken.safeTransfer(to, amount);
-        }
+        totalDistributed += amount;
+        rewardToken.safeTransfer(to, amount);
     }
 
     /**
