@@ -286,11 +286,15 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Sets the pool inactive
+     * @dev Deactivates the pool and stops new rewards
      * @param poolId Pool identifier
      */
     function setPoolInactive(bytes32 poolId) external onlyOwner {
         Pool storage pool = pools[poolId];
+        if (!pool.isActive) revert PoolInactive();
+
+        _updatePool(poolId);
+        pool.rewardRate = 0;
         pool.isActive = false;
 
         emit PoolDeactivated(poolId);

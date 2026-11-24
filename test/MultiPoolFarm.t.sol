@@ -253,6 +253,7 @@ contract MultiPoolFarmTest is Test {
         multiPoolFarm.stake(poolId1, stakeAmount);
         vm.stopPrank();
 
+        skip(100);
         multiPoolFarm.setPoolInactive(poolId1);
         vm.warp(block.timestamp + 100);
 
@@ -542,6 +543,25 @@ contract MultiPoolFarmTest is Test {
         assertFalse(poolIsActiveAfter);
     }
 
+    function test_SetPoolInactive_StopNewRewards() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        uint256 user1PendingRewardsBefore = multiPoolFarm.pendingRewards(poolId1, user1);
+        multiPoolFarm.setPoolInactive(poolId1);
+        skip(100);
+
+        uint256 user1PendingRewardsAfter = multiPoolFarm.pendingRewards(poolId1, user1);
+        (,, uint256 rewardRateAfter,,, bool poolIsActiveAfter) = multiPoolFarm.pools(poolId1);
+
+        assertEq(rewardRateAfter, 0);
+        assertEq(user1PendingRewardsBefore, user1PendingRewardsAfter);
+        assertEq(user1PendingRewardsBefore, REWARD_RATE * 100);
+    }
+
     function test_SetPoolInactive_EmitsPoolDeactivated() public {
         vm.expectEmit(true, false, false, true);
         emit MultiPoolFarm.PoolDeactivated(poolId1);
@@ -552,6 +572,13 @@ contract MultiPoolFarmTest is Test {
     function test_SetPoolInactive_RevertWhen_CallerIsNotOwner() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         vm.prank(user1);
+        multiPoolFarm.setPoolInactive(poolId1);
+    }
+
+    function test_SetPoolInactive_RevertWhen_PoolIsInactive() public {
+        multiPoolFarm.setPoolInactive(poolId1);
+
+        vm.expectRevert(MultiPoolFarm.PoolInactive.selector);
         multiPoolFarm.setPoolInactive(poolId1);
     }
 }
