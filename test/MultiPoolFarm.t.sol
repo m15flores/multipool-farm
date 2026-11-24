@@ -515,23 +515,23 @@ contract MultiPoolFarmTest is Test {
         assertEq(multiPoolFarm.getActivePoolsCount(), 2);
     }
 
-    function test_EmergencyWithdraw_SendsTokenToOwner() public {
+    function test_RescueTokens_SendsTokenToOwner() public {
         stakingToken1.transfer(address(multiPoolFarm), 1000 * 10 ** 18);
 
         uint256 balanceBefore = stakingToken1.balanceOf(owner);
 
-        multiPoolFarm.emergencyWithdraw(address(stakingToken1), 1000 * 10 ** 18);
+        multiPoolFarm.rescueTokens(address(stakingToken1), 1000 * 10 ** 18);
 
         uint256 balanceAfter = stakingToken1.balanceOf(owner);
         assertEq(balanceAfter, balanceBefore + 1000 * 10 ** 18);
     }
 
-    function test_EmergencyWithdraw_RevertWhen_CallerIsNotOwner() public {
+    function test_RescueTokens_RevertWhen_CallerIsNotOwner() public {
         stakingToken1.transfer(address(multiPoolFarm), 1000 * 10 ** 18);
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
         vm.prank(user1);
-        multiPoolFarm.emergencyWithdraw(address(stakingToken1), 1000 * 10 ** 18);
+        multiPoolFarm.rescueTokens(address(stakingToken1), 1000 * 10 ** 18);
     }
 
     function test_SetPoolInactive_DeactivatesThePool() public {

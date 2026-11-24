@@ -281,8 +281,12 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
      * @param token Address of the token to rescue
      * @param amount Amount to rescue
      */
-    function emergencyWithdraw(address token, uint256 amount) external onlyOwner {
+    function rescueTokens(address token, uint256 amount) external onlyOwner {
         IERC20(token).safeTransfer(owner(), amount);
+    }
+
+    function emergencyWithdraw(bytes32 poolId) external {
+
     }
 
     /**
