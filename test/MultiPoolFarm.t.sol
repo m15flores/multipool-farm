@@ -154,11 +154,38 @@ contract MultiPoolFarmTest is Test {
         assertEq(totalStakedByTokenAfter, totalStakedByTokenBefore + stakeAmount);
     }
 
+    function test_Stake_SecondStakePaysPendingRewards() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        uint256 userRewardTokenBalance = rewardToken.balanceOf(user1);
+        assertEq(userRewardTokenBalance, REWARD_RATE * 100);
+    }
+
     function test_Stake_EmitsStaked() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
         vm.expectEmit(true, true, false, true);
         emit MultiPoolFarm.Staked(poolId1, user1, stakeAmount);
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+    }
+
+    function test_Stake_SecondStakeEmitsRewardClaimed() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.RewardClaimed(poolId1, user1, REWARD_RATE * 100);
         vm.prank(user1);
         multiPoolFarm.stake(poolId1, stakeAmount);
     }
@@ -235,6 +262,20 @@ contract MultiPoolFarmTest is Test {
         assertEq(stakingToken1.balanceOf(user1), 9000 * 10 ** 18 + withdrawAmount);
     }
 
+    function test_Withdraw_PaysPendingRewards() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.withdraw(poolId1, stakeAmount);
+
+        uint256 userRewardTokenBalance = rewardToken.balanceOf(user1);
+        assertEq(userRewardTokenBalance, REWARD_RATE * 100);
+    }
+
     function test_Withdraw_EmitsWithdrawn() public {
         uint256 stakeAmount = 1000 * 10 ** 18;
 
@@ -243,6 +284,19 @@ contract MultiPoolFarmTest is Test {
 
         vm.expectEmit(true, true, false, true);
         emit MultiPoolFarm.Withdrawn(poolId1, user1, stakeAmount);
+        vm.prank(user1);
+        multiPoolFarm.withdraw(poolId1, stakeAmount);
+    }
+
+    function test_Withdraw_EmitsrewardClaimed() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.RewardClaimed(poolId1, user1, REWARD_RATE * 100);
         vm.prank(user1);
         multiPoolFarm.withdraw(poolId1, stakeAmount);
     }
@@ -342,6 +396,43 @@ contract MultiPoolFarmTest is Test {
         uint256 expected = REWARD_RATE * 100 + REWARD_RATE * 100 * stakeAmount1 / (stakeAmount1 + stakeAmount2);
 
         assertApproxEqAbs(rewardToken.balanceOf(user1), expected, stakeAmount1 / 1e18);
+    }
+
+    function test_Claim_TwiceDoesNotPaySamePeriodTwice() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+
+        // Same block : nothing new to claim
+        vm.prank(user1);
+        vm.expectRevert(MultiPoolFarm.NoRewardsToClaim.selector);
+        multiPoolFarm.claim(poolId1);
+
+        skip(100);
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
+
+        // Two periods of 100s, each paid once
+        uint256 userRewardTokenBalance = rewardToken.balanceOf(user1);
+        assertEq(userRewardTokenBalance, REWARD_RATE * 200);
+    }
+
+    function test_Claim_EmitsRewardClaimed() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.prank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+        skip(100);
+
+        vm.expectEmit(true, true, false, true);
+        emit MultiPoolFarm.RewardClaimed(poolId1, user1, REWARD_RATE * 100);
+        vm.prank(user1);
+        multiPoolFarm.claim(poolId1);
     }
 
     function test_Claim_RevertWhen_NoRewards() public {
@@ -518,7 +609,23 @@ contract MultiPoolFarmTest is Test {
         assertGt(pending1, 0);
         assertGt(pending2, 0);
 
-        assertGt(pending2, pending1);
+        assertEq(pending2, 2 * pending1);
+    }
+
+    function test_PendingRewards_ZeroWhenPoolHasNoStakers() public {
+        vm.warp(block.timestamp + 100);
+        uint256 userPendingRewards = multiPoolFarm.pendingRewards(poolId1, user1);
+        assertEq(userPendingRewards, 0);
+    }
+
+    function test_PendingRewards_ZeroForUserWithoutStaker() public {
+        uint256 stakeAmount = 1000 * 10 ** 18;
+
+        vm.startPrank(user1);
+        multiPoolFarm.stake(poolId1, stakeAmount);
+
+        uint256 user3PendingRewards = multiPoolFarm.pendingRewards(poolId1, user3);
+        assertEq(user3PendingRewards, 0);
     }
 
     function test_GetPoolEncodedData_ReturnsNonEmptyData() public view {
