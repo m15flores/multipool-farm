@@ -523,6 +523,20 @@ contract MultiPoolFarmTest is Test {
         farm.claim(poolId);
     }
 
+    function test_Claim_RevertWhen_OnlyDonationsCoversPayout() public {
+        (MultiPoolFarm farm, bytes32 poolId) = _deployUnderfundedFarm();
+        uint256 pending = farm.pendingRewards(poolId, user1);
+        assertGt(pending, farm.totalFunded());
+
+        rewardToken.transfer(address(farm), pending);
+        uint256 farmRewardTokenBalance = rewardToken.balanceOf(address(farm));
+        assertGe(farmRewardTokenBalance, pending);
+
+        vm.expectRevert(MultiPoolFarm.InsufficientRewardBalance.selector);
+        vm.prank(user1);
+        farm.claim(poolId);
+    }
+
     function test_UpdatePoolRewardRate_StoresNewRate() public {
         uint256 newRewardRate = REWARD_RATE * 2;
 
@@ -746,6 +760,22 @@ contract MultiPoolFarmTest is Test {
         assertEq(balanceAfter, balanceBefore + amount);
     }
 
+    function test_RescueTokens_RewardToken_SendsDonationToOwner() public {
+        uint256 amount = 1000 * 10 ** 18;
+        rewardToken.transfer(address(multiPoolFarm), amount);
+
+        uint256 ownerRewardTokenBalanceBefore = rewardToken.balanceOf(owner);
+        uint256 farmRewardTokenBalanceBefore = rewardToken.balanceOf(address(multiPoolFarm));
+
+        multiPoolFarm.rescueTokens(address(rewardToken), amount);
+
+        uint256 ownerRewardTokenBalanceAfter = rewardToken.balanceOf(owner);
+        uint256 farmRewardTokenBalanceAfter = rewardToken.balanceOf(address(multiPoolFarm));
+
+        assertEq(ownerRewardTokenBalanceAfter, ownerRewardTokenBalanceBefore + amount);
+        assertEq(farmRewardTokenBalanceAfter, farmRewardTokenBalanceBefore - amount);
+    }
+
     function test_RescueTokens_EmitsTokensRescued() public {
         uint256 amount = 1000 * 10 ** 18;
         stakingToken1.transfer(address(multiPoolFarm), amount);
@@ -787,6 +817,14 @@ contract MultiPoolFarmTest is Test {
 
         vm.expectRevert(MultiPoolFarm.RescueExceedsSurplus.selector);
         multiPoolFarm.rescueTokens(address(stakingToken1), 1);
+    }
+
+    function test_RescueTokens_RevertWhen_RewardTokenAmountExceedsSurplus() public {
+        uint256 amount = 1_000 * 10 ** 18;
+        stakingToken1.transfer(address(multiPoolFarm), amount);
+
+        vm.expectRevert(MultiPoolFarm.RescueExceedsSurplus.selector);
+        multiPoolFarm.rescueTokens(address(stakingToken1), amount + 1);
     }
 
     function test_EmergencyWithdraw_ReturnsFullStake() public {
