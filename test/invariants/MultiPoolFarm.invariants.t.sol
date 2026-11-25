@@ -29,7 +29,7 @@ contract MultiPoolFarmInvariants is Test {
         stakingToken2 = new MockToken("Staking Token 2", "STK2", INITIAL_SUPPLY);
         multiPoolFarm = new MultiPoolFarm(address(rewardToken));
 
-        rewardToken.approve(address(multiPoolFarm), INITIAL_FUNDING);
+        rewardToken.approve(address(multiPoolFarm), type(uint256).max);
         multiPoolFarm.fundRewards(INITIAL_FUNDING);
 
         _addPool(stakingToken1, REWARD_RATE);
@@ -49,7 +49,7 @@ contract MultiPoolFarmInvariants is Test {
             vm.stopPrank();
         }
 
-        handler = new MultiPoolFarmHandler(multiPoolFarm, poolTokens, actors, poolIds);
+        handler = new MultiPoolFarmHandler(multiPoolFarm, rewardToken, poolTokens, actors, poolIds);
         targetContract(address(handler));
     }
 

@@ -9,17 +9,20 @@ import "../mocks/MockToken.sol";
 contract MultiPoolFarmHandler is Test {
     MultiPoolFarm public immutable multiPoolFarm;
 
+    MockToken public rewardToken;
     MockToken[] public poolTokens;
     address[] public actors;
     bytes32[] public poolIds;
 
     constructor(
         MultiPoolFarm _multiPoolFarm,
+        MockToken _rewardToken,
         MockToken[] memory _poolTokens,
         address[] memory _actors,
         bytes32[] memory _poolIds
     ) {
         multiPoolFarm = _multiPoolFarm;
+        rewardToken = _rewardToken;
         poolTokens = _poolTokens;
         actors = _actors;
         poolIds = _poolIds;
@@ -68,6 +71,35 @@ contract MultiPoolFarmHandler is Test {
 
         vm.prank(actor);
         multiPoolFarm.emergencyWithdraw(poolIds[poolIndex]);
+    }
+
+    function fundRewards(uint256 amount) public {
+        uint256 ownerBalance = rewardToken.balanceOf(multiPoolFarm.owner());
+        if (ownerBalance == 0) return;
+        amount = bound(amount, 1, ownerBalance);
+
+        vm.prank(multiPoolFarm.owner());
+        multiPoolFarm.fundRewards(amount);
+    }
+
+    function donate(uint256 amount) public {
+        uint256 ownerBalance = rewardToken.balanceOf(multiPoolFarm.owner());
+        if (ownerBalance == 0) return;
+        amount = bound(amount, 1, 1_000 * 10 ** 18);
+
+        vm.prank(multiPoolFarm.owner());
+        rewardToken.transfer(address(multiPoolFarm), amount);
+    }
+
+    function updatePoolRewardRate(uint256 poolSeed, uint256 newRewardRate) public {
+        uint256 poolIndex = bound(poolSeed, 0, poolIds.length - 1);
+        (,,,,, bool poolIsActive) = multiPoolFarm.pools(poolIds[poolIndex]);
+        if (!poolIsActive) return;
+
+        newRewardRate = bound(newRewardRate, 1, 1e17);
+
+        vm.prank(multiPoolFarm.owner());
+        multiPoolFarm.updatePoolRewardRate(poolIds[poolIndex], newRewardRate);
     }
 
     function skipTime(uint256 seconds_) public {
