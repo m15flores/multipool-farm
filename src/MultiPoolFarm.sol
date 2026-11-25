@@ -10,8 +10,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title MultiPoolFarm
  * @author Mario Flores
- * @notice Yield Farming contract demonstrating the use of abi.encodePacked
- *          to encode pool parameters and calculate unique identifiers
+ * @notice Staking farm with several pools that pays rewards in a single ERC20 token
+ *          Each pñ keeps a reward-per-token accumulator and each user a reward
+ *          debt. Rewards are paid pnly from tokens funded throught fundRewards
  */
 contract MultiPoolFarm is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
@@ -32,25 +33,25 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
         uint256 lastClaimTime;
     }
 
-    // Reward token
+    /// Reward token
     IERC20 public immutable rewardToken;
 
-    // Mapping of pools by their unique identifier
+    /// Mapping of pools by their unique identifier
     mapping(bytes32 => Pool) public pools;
 
-    // Mapping of user information by pool and address
+    /// Mapping of user information by pool and address
     mapping(bytes32 => mapping(address => UserInfo)) public userInfo;
 
-    // Mapping of total staked by the address of the token
+    /// Mapping of total staked by the address of the token
     mapping(address => uint256) public totalStakedByToken;
 
-    // List of all active pools
+    /// List of all active pools
     bytes32[] public activePools;
 
-    // Total reward token funded by the owner
+    /// Total reward token funded by the owner
     uint256 public totalFunded;
 
-    // Total reward token paid to users
+    /// Total reward token paid to users
     uint256 public totalDistributed;
 
     /// @dev Emitted when the owner creates a pool
@@ -74,10 +75,10 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// @dev Emitted when the owner deactivates a pool
     event PoolDeactivated(bytes32 indexed poolId);
 
-    /// @dev Emitted when the owner rescues tokens that were not owed to stakers nor commited as rewards
+    /// @dev Emitted when the owner rescues tokens that were not owed to stakers nor committed as rewards
     event TokensRescued(address indexed token, uint256 amount);
 
-    /// @dev Emited when the owner funds the farm with the reward token
+    /// @dev Emitted when the owner funds the farm with the reward token
     event RewardsFunded(address indexed funder, uint256 amount);
 
     /// @dev Thrown when the address is the zero address
@@ -310,7 +311,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Sends the owner the tokens that are not owed by the stakers nor commited as rewards
+     * @dev Sends the owner the tokens that are not owed by the stakers nor committed as rewards
      * @param token Address of the token to rescue
      * @param amount Amount to rescue
      */
