@@ -40,7 +40,7 @@ contract MultiPoolFarmInvariants is Test {
         actors.push(makeAddr("user2"));
         actors.push(makeAddr("user3"));
 
-        for(uint256 i = 0; i < actors.length; i++) {
+        for (uint256 i = 0; i < actors.length; i++) {
             stakingToken1.mint(actors[i], USER_BALANCE);
             stakingToken2.mint(actors[i], USER_BALANCE);
             vm.startPrank(actors[i]);
@@ -54,14 +54,14 @@ contract MultiPoolFarmInvariants is Test {
     }
 
     function invariant_SumOfUserStakesEqualsPoolTotalStaked() public view {
-        for(uint256 i = 0; i < poolIds.length; i++) {
+        for (uint256 i = 0; i < poolIds.length; i++) {
             uint256 sumOfUserStakes = 0;
 
-            for(uint256 j = 0; j < actors.length; j++) {
+            for (uint256 j = 0; j < actors.length; j++) {
                 (uint256 userAmount,,) = multiPoolFarm.userInfo(poolIds[i], actors[j]);
                 sumOfUserStakes += userAmount;
             }
-            
+
             (, uint256 poolTotalStaked,,,,) = multiPoolFarm.pools(poolIds[i]);
             assertEq(sumOfUserStakes, poolTotalStaked, "Sum of users != pool totalStaked.");
         }

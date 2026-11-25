@@ -27,14 +27,47 @@ contract MultiPoolFarmHandler is Test {
 
     function stake(uint256 poolSeed, uint256 actorSeed, uint256 amount) public {
         address actor = actors[bound(actorSeed, 0, actors.length - 1)];
-        uint256 pool = bound(poolSeed, 0, poolIds.length - 1);
+        uint256 poolIndex = bound(poolSeed, 0, poolIds.length - 1);
 
-        uint256 balance = poolTokens[pool].balanceOf(actor);
+        uint256 balance = poolTokens[poolIndex].balanceOf(actor);
         if (balance == 0) return;
         amount = bound(amount, 1, balance);
 
         vm.prank(actor);
-        multiPoolFarm.stake(poolIds[pool], amount);
+        multiPoolFarm.stake(poolIds[poolIndex], amount);
+    }
+
+    function withdraw(uint256 poolSeed, uint256 actorSeed, uint256 amount) public {
+        address actor = actors[bound(actorSeed, 0, actors.length - 1)];
+        uint256 poolIndex = bound(poolSeed, 0, poolIds.length - 1);
+
+        (uint256 actorAmount,,) = multiPoolFarm.userInfo(poolIds[poolIndex], actor);
+        if (actorAmount == 0) return;
+        amount = bound(amount, 1, actorAmount);
+
+        vm.prank(actor);
+        multiPoolFarm.withdraw(poolIds[poolIndex], amount);
+    }
+
+    function claim(uint256 poolSeed, uint256 actorSeed) public {
+        address actor = actors[bound(actorSeed, 0, actors.length - 1)];
+        uint256 poolIndex = bound(poolSeed, 0, poolIds.length - 1);
+
+        if (multiPoolFarm.pendingRewards(poolIds[poolIndex], actor) == 0) return;
+
+        vm.prank(actor);
+        multiPoolFarm.claim(poolIds[poolIndex]);
+    }
+
+    function emergencyWithdraw(uint256 poolSeed, uint256 actorSeed) public {
+        address actor = actors[bound(actorSeed, 0, actors.length - 1)];
+        uint256 poolIndex = bound(poolSeed, 0, poolIds.length - 1);
+
+        (uint256 actorAmount,,) = multiPoolFarm.userInfo(poolIds[poolIndex], actor);
+        if (actorAmount == 0) return;
+
+        vm.prank(actor);
+        multiPoolFarm.emergencyWithdraw(poolIds[poolIndex]);
     }
 
     function skipTime(uint256 seconds_) public {
