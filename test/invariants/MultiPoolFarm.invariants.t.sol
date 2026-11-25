@@ -53,6 +53,20 @@ contract MultiPoolFarmInvariants is Test {
         targetContract(address(handler));
     }
 
+    function invariant_SumOfUserStakesEqualsPoolTotalStaked() public view {
+        for(uint256 i = 0; i < poolIds.length; i++) {
+            uint256 sumOfUserStakes = 0;
+
+            for(uint256 j = 0; j < actors.length; j++) {
+                (uint256 userAmount,,) = multiPoolFarm.userInfo(poolIds[i], actors[j]);
+                sumOfUserStakes += userAmount;
+            }
+            
+            (, uint256 poolTotalStaked,,,,) = multiPoolFarm.pools(poolIds[i]);
+            assertEq(sumOfUserStakes, poolTotalStaked, "Sum of users != pool totalStaked.");
+        }
+    }
+
     function _addPool(MockToken token, uint256 rate) internal {
         poolIds.push(multiPoolFarm.createPool(address(token), rate));
         poolTokens.push(token);
