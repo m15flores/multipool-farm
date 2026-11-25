@@ -273,28 +273,6 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Get encoded pool information for external use
-     * @param poolId Pool identifier
-     * @return encodedData Encoded pool data
-     */
-    function getPoolEncodedData(bytes32 poolId) external view returns (bytes memory encodedData) {
-        Pool storage pool = pools[poolId];
-        encodedData = abi.encodePacked(
-            pool.token, pool.totalStaked, pool.lastUpdateTime, pool.rewardPerTokenStored, pool.isActive
-        );
-    }
-
-    /**
-     * @dev Create a unique hash for a user in a specific pool
-     * @param poolId Pool identifier
-     * @param user User address
-     * @return userHash Unique user hash
-     */
-    function getUserHash(bytes32 poolId, address user) external pure returns (bytes32 userHash) {
-        userHash = keccak256(abi.encodePacked(poolId, user, "YIELD_FARMING_USER"));
-    }
-
-    /**
      * @dev Get the total number of active pools
      * @return Number of active pools
      */

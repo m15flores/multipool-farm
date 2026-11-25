@@ -723,22 +723,6 @@ contract MultiPoolFarmTest is Test {
         assertEq(user3PendingRewards, 0);
     }
 
-    function test_GetPoolEncodedData_ReturnsNonEmptyData() public view {
-        bytes memory encodedData = multiPoolFarm.getPoolEncodedData(poolId1);
-
-        assertGt(encodedData.length, 0);
-    }
-
-    function test_GetUserHash_DiffersByUserAndPool() public view {
-        bytes32 userHash = multiPoolFarm.getUserHash(poolId1, user1);
-
-        bytes32 userHash2 = multiPoolFarm.getUserHash(poolId1, user2);
-        assertTrue(userHash != userHash2);
-
-        bytes32 userHashPool2 = multiPoolFarm.getUserHash(poolId2, user1);
-        assertTrue(userHash != userHashPool2);
-    }
-
     function test_GetActivePools_ReturnsCreatedPools() public view {
         bytes32[] memory activePools = multiPoolFarm.getActivePools();
         assertEq(activePools.length, 2);
