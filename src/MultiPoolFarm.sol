@@ -45,8 +45,8 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     /// Mapping of total staked by the address of the token
     mapping(address => uint256) public totalStakedByToken;
 
-    /// List of all active pools
-    bytes32[] public activePools;
+    /// Identifiers of every pool created
+    bytes32[] public poolIds;
 
     /// Total reward token funded by the owner
     uint256 public totalFunded;
@@ -149,7 +149,7 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
             isActive: true
         });
 
-        activePools.push(poolId);
+        poolIds.push(poolId);
 
         emit PoolCreated(poolId, token, rewardRate);
     }
@@ -273,19 +273,19 @@ contract MultiPoolFarm is ReentrancyGuard, Ownable {
     }
 
     /**
-     * @dev Get the total number of active pools
-     * @return Number of active pools
+     * @dev Get the total number of pools
+     * @return Number of pools
      */
-    function getActivePoolsCount() external view returns (uint256) {
-        return activePools.length;
+    function getPoolsCount() external view returns (uint256) {
+        return poolIds.length;
     }
 
     /**
-     * @dev Get all active pools
-     * @return Array with the identifiers of the active pools
+     * @dev Get all pools
+     * @return Array with the identifiers of the pools
      */
-    function getActivePools() external view returns (bytes32[] memory) {
-        return activePools;
+    function getPoolIds() external view returns (bytes32[] memory) {
+        return poolIds;
     }
 
     /**

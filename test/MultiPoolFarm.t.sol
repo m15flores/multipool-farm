@@ -724,12 +724,12 @@ contract MultiPoolFarmTest is Test {
     }
 
     function test_GetActivePools_ReturnsCreatedPools() public view {
-        bytes32[] memory activePools = multiPoolFarm.getActivePools();
+        bytes32[] memory activePools = multiPoolFarm.getPoolIds();
         assertEq(activePools.length, 2);
         assertEq(activePools[0], poolId1);
         assertEq(activePools[1], poolId2);
 
-        assertEq(multiPoolFarm.getActivePoolsCount(), 2);
+        assertEq(multiPoolFarm.getPoolsCount(), 2);
     }
 
     function test_RescueTokens_SendsSurplusTokenToOwner() public {
