@@ -67,6 +67,29 @@ contract MultiPoolFarmInvariants is Test {
         }
     }
 
+    function invariant_TotalDistributedNeverExceedsTotalFunded() public view {
+        assertLe(multiPoolFarm.totalDistributed(), multiPoolFarm.totalFunded(), "distributed > funded.");
+    }
+
+    function invariant_TokenBalanceCoversTotalStakedByToken() public view {
+        assertGe(
+            stakingToken1.balanceOf(address(multiPoolFarm)),
+            multiPoolFarm.totalStakedByToken(address(stakingToken1)),
+            "token1 balance < staked."
+        );
+    }
+
+    function invariant_RewardsReceivedEqualTotalDistributed() public view {
+        uint256 sumOfUserRewards = 0;
+
+        for (uint256 j = 0; j < actors.length; j++) {
+            uint256 userRewardTokenBalance = rewardToken.balanceOf(actors[j]);
+            sumOfUserRewards += userRewardTokenBalance;
+        }
+
+        assertEq(sumOfUserRewards, multiPoolFarm.totalDistributed(), "Sum of users rewards != farm totalDistributed.");
+    }
+
     function _addPool(MockToken token, uint256 rate) internal {
         poolIds.push(multiPoolFarm.createPool(address(token), rate));
         poolTokens.push(token);
